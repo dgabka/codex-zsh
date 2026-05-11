@@ -27,6 +27,7 @@ Then use agent prompts directly from your shell:
 :model
 :effort
 :commit
+:help
 ```
 
 ## Commands
@@ -37,6 +38,7 @@ Then use agent prompts directly from your shell:
 - `:model` opens an `fzf` picker for the Codex model
 - `:effort` opens an `fzf` picker for reasoning effort
 - `:commit [context]` generates a conventional commit message and pre-fills `git commit`
+- `:help` lists available codex-zsh commands
 
 `:commit` asks Codex to use the bundled commit skill when available, and falls
 back to embedded commit-message rules when the skill is not installed.

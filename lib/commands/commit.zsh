@@ -76,7 +76,7 @@ function :commit {
   print -u2 -- ":commit: generating commit message"
   codex exec \
     -m gpt-5.4-mini \
-    -c model_reasoning_effort='"low"' \
+    -c 'model_reasoning_effort="low"' \
     --sandbox read-only \
     --ephemeral \
     --color never \
