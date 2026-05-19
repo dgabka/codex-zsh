@@ -1,3 +1,90 @@
+function _codex_commit_trim {
+  emulate -L zsh
+
+  local value="$1"
+  if [[ "$value" != *[![:space:]]* ]]; then
+    return
+  fi
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  print -rn -- "$value"
+}
+
+function _codex_commit_message_from_file {
+  emulate -L zsh
+
+  local message first_line last_line
+  message=$(<"$1")
+  message="$(_codex_commit_trim "$message")"
+
+  local fence='```'
+  first_line="${message%%$'\n'*}"
+  last_line="${message##*$'\n'}"
+  if [[ "$first_line" == ${fence}* && "$last_line" == "$fence" ]]; then
+    local -a lines
+    lines=("${(@f)message}")
+    lines=("${(@)lines[2,-2]}")
+    message="${(F)lines}"
+    message="$(_codex_commit_trim "$message")"
+  fi
+
+  first_line="${message%%$'\n'*}"
+  if [[ "$message" == *$'\n'* && ("$first_line" == "text" || "$first_line" == "commit") ]]; then
+    message="${message#*$'\n'}"
+    message="$(_codex_commit_trim "$message")"
+  fi
+
+  print -rn -- "$message"
+}
+
+function _codex_commit_prefill_command {
+  emulate -L zsh
+
+  local commit_prefix="$1"
+  local message="$2"
+  local subject body command
+
+  subject="${message%%$'\n'*}"
+  subject="$(_codex_commit_trim "$subject")"
+  [[ -n "$subject" ]] || return 1
+
+  command="$commit_prefix ${(qq)subject}"
+
+  if [[ "$message" == *$'\n'* ]]; then
+    body="${message#*$'\n'}"
+    body="$(_codex_commit_trim "$body")"
+    if [[ -n "$body" ]]; then
+      local -a lines paragraphs
+      local line trimmed paragraph
+      lines=("${(@f)body}")
+      paragraphs=()
+      paragraph=""
+
+      for line in "${lines[@]}"; do
+        trimmed="$(_codex_commit_trim "$line")"
+        if [[ -z "$trimmed" ]]; then
+          paragraph="$(_codex_commit_trim "$paragraph")"
+          [[ -n "$paragraph" ]] && paragraphs+=("$paragraph")
+          paragraph=""
+        else
+          [[ -n "$paragraph" ]] && paragraph+=$'\n'
+          paragraph+="$line"
+        fi
+      done
+
+      paragraph="$(_codex_commit_trim "$paragraph")"
+      [[ -n "$paragraph" ]] && paragraphs+=("$paragraph")
+
+      for paragraph in "${paragraphs[@]}"; do
+        command+=" -m ${(qq)paragraph}"
+      done
+    fi
+  fi
+
+  print -rn -- "$command"
+}
+
 function :commit {
   emulate -L zsh
   setopt pipefail
@@ -44,12 +131,14 @@ function :commit {
     print -r -- "If the commit skill is not available, use this fallback prompt:"
     print -r -- "You are a commit message generator that creates concise, conventional commit messages from git diffs."
     print -r -- 'Return ONLY raw text. No markdown. No code blocks. No ``` markers.'
-    print -r -- "Format: type(scope): description"
+    print -r -- "The first line must use this format: type(scope): description"
     print -r -- "Allowed types: feat, fix, refactor, perf, docs, style, test, chore, ci, build, revert"
     print -r -- "Scope is optional, lowercase, and has no spaces."
     print -r -- "Description must be imperative, lowercase, no period, and 10-72 characters."
+    print -r -- "Prefer a single-line message. Add body paragraphs only when the diff is complex, the user asks for detail, or the reasoning would be lost from the subject alone."
+    print -r -- "When adding a body, separate it from the subject with one blank line. Keep body lines wrapped naturally and explain why the change was made."
     print -r -- "For breaking changes, add ! after type or scope, for example refactor!: or feat(api)!:."
-    print -r -- "Rules: single line only; focus on the primary change; be specific; exclude issue/PR references; match recent commit style; use imperative mood; keep it concise."
+    print -r -- "Rules: focus on the primary change; be specific; exclude issue/PR references; match recent commit style; use imperative mood; keep it concise."
     print -r -- "Input priority: git_diff, additional_context, recent_commit_messages, branch_name."
     print -r -- ""
     print -r -- "git_diff_source: $diff_label"
@@ -71,7 +160,7 @@ function :commit {
     print -r -- "$branch_name"
     print -r -- ""
     print -r -- "Return only the commit message."
-  } >| "$prompt_file"
+  } >|"$prompt_file"
 
   print -u2 -- ":commit: generating commit message"
   codex exec \
@@ -82,7 +171,7 @@ function :commit {
     --color never \
     -C "$repo_root" \
     -o "$output_file" \
-    - < "$prompt_file" >| "$log_file" 2>&1
+    - <"$prompt_file" >|"$log_file" 2>&1
   codex_status=$?
 
   if ((codex_status != 0)); then
@@ -94,13 +183,7 @@ function :commit {
     return $codex_status
   fi
 
-  message=$(sed -n '/[^[:space:]]/{p;q;}' "$output_file")
-  message="${message#\`\`\`}"
-  message="${message%\`\`\`}"
-  message="${message#text}"
-  message="${message#commit}"
-  message="${message#"${message%%[![:space:]]*}"}"
-  message="${message%"${message##*[![:space:]]}"}"
+  message="$(_codex_commit_message_from_file "$output_file")"
 
   rm -rf -- "$tmp_dir"
 
@@ -109,6 +192,12 @@ function :commit {
     return 1
   fi
 
-  print -z -- "$commit_prefix ${(qq)message}"
+  local commit_command
+  commit_command="$(_codex_commit_prefill_command "$commit_prefix" "$message")" || {
+    print -u2 -- ":commit: codex returned an empty subject"
+    return 1
+  }
+
+  print -z -- "$commit_command"
   print -u2 -- ":commit: prefilled $commit_prefix"
 }

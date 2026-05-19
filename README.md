@@ -41,7 +41,9 @@ Then use agent prompts directly from your shell:
 - `:help` lists available codex-zsh commands
 
 `:commit` asks Codex to use the bundled commit skill when available, and falls
-back to embedded commit-message rules when the skill is not installed.
+back to embedded commit-message rules when the skill is not installed. It
+prefers a single-line subject, but can prefill multiline commits with body
+paragraphs when Codex returns them.
 
 The shell prompt can read these env vars to show active agent status:
 
